@@ -1,0 +1,71 @@
+#!/bin/bash
+
+set -e  # Exit on error
+
+# Variables
+APP_DIR="/home/ubuntu/Flask-Ecommerce"
+GIT_REPO="https://github.com/yourusername/Flask-Ecommerce.git"
+SERVICE_NAME="flask-ecommerce"
+PYTHON_VERSION="python3.10"
+VENV_DIR="$APP_DIR/venv"
+GUNICORN_EXEC="$VENV_DIR/bin/gunicorn"
+GUNICORN_BIND="0.0.0.0:8000"
+
+# Update system and install dependencies
+echo "Updating system and installing dependencies..."
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y $PYTHON_VERSION $PYTHON_VERSION-venv $PYTHON_VERSION-dev python3-pip git build-essential libffi-dev libssl-dev
+
+# Clone or update the repository
+echo "Cloning or updating repository..."
+if [ ! -d "$APP_DIR" ]; then
+    git clone $GIT_REPO $APP_DIR
+else
+    cd $APP_DIR && git pull origin main
+fi
+
+# Setup virtual environment
+echo "Setting up virtual environment..."
+cd $APP_DIR
+$PYTHON_VERSION -m venv $VENV_DIR
+source $VENV_DIR/bin/activate
+pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+
+# Fix greenlet issue (if needed)
+pip install --no-cache-dir --force-reinstall greenlet==2.0.2
+
+# Create systemd service
+echo "Creating systemd service..."
+echo "[Unit]
+Description=Gunicorn instance to serve Flask E-commerce
+After=network.target
+
+[Service]
+User=ubuntu
+Group=www-data
+WorkingDirectory=$APP_DIR
+Environment=\"PATH=$VENV_DIR/bin\"
+ExecStart=$GUNICORN_EXEC --workers 3 --bind $GUNICORN_BIND main:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target" | sudo tee /etc/systemd/system/$SERVICE_NAME.service
+
+# Reload systemd and start service
+echo "Starting service..."
+sudo systemctl daemon-reload
+sudo systemctl start $SERVICE_NAME
+sudo systemctl enable $SERVICE_NAME
+
+# Set permissions
+echo "Setting permissions..."
+sudo chown -R ubuntu:www-data $APP_DIR
+sudo chmod -R 755 $APP_DIR
+
+# Verify deployment
+echo "Checking service status..."
+sudo systemctl status $SERVICE_NAME --no-pager
+
+echo "Deployment completed! Access your app at http://your-server-ip:8000"
